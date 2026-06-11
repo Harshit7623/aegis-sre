@@ -84,10 +84,12 @@ def _auto_start_local_receiver():
         logger.warning(f"Could not auto-start local webhook receiver: {e}")
 
 
-def trigger_n8n_workflow(payload: dict, webhook_url: str = DEFAULT_N8N_WEBHOOK_URL) -> dict:
+def trigger_n8n_workflow(payload: dict, webhook_url: str = None) -> dict:
     """
     Triggers an automated remediation workflow in n8n via a POST webhook request.
     """
+    if webhook_url is None:
+        webhook_url = os.getenv("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/aegis-sre-remediate")
     # Check if automation dispatch is explicitly disabled via env
     if os.getenv("DISABLE_N8N", "false").lower() == "true":
         logger.info("n8n automation dispatch is disabled. Logging incident details locally in standalone mode.")

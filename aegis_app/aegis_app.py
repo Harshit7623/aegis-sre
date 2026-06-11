@@ -160,6 +160,14 @@ class State(rx.State):
 
     show_playbooks: bool = False
     
+    sre_brain_connection_status: str = "Checking..."
+    show_sre_brain_api_key_input: bool = False
+    sre_brain_api_key: str = ""
+
+    n8n_connection_status: str = "Checking..."
+    show_n8n_webhook_url_input: bool = False
+    n8n_webhook_url: str = ""
+
     def toggle_playbooks(self):
         self.show_playbooks = not self.show_playbooks
 
@@ -372,6 +380,50 @@ class State(rx.State):
     def toggle_slack_token_input(self):
         self.show_slack_token_input = True
 
+    def set_sre_brain_api_key(self, val: str):
+        self.sre_brain_api_key = val
+    def toggle_sre_brain_api_key_input(self):
+        self.show_sre_brain_api_key_input = True
+
+    def set_n8n_webhook_url(self, val: str):
+        self.n8n_webhook_url = val
+    def toggle_n8n_webhook_url_input(self):
+        self.show_n8n_webhook_url_input = True
+
+    @rx.event(background=True)
+    async def connect_sre_brain(self):
+        import os, dotenv
+        async with self:
+            if not self.sre_brain_api_key:
+                self.sre_brain_connection_status = "Error: Missing API key"
+                return
+            self.sre_brain_connection_status = "Connecting..."
+            key = self.sre_brain_api_key
+            os.environ["GEMINI_API_KEY"] = key
+            env_file = os.path.join(os.getcwd(), ".env")
+            if not os.path.exists(env_file): open(env_file, 'a').close()
+            dotenv.set_key(env_file, "GEMINI_API_KEY", key)
+            self.sre_brain_connection_status = "Connected (Live)"
+            self.show_sre_brain_api_key_input = False
+            self.agent_thought_log.append("🔗 SRE Brain API Key updated")
+
+    @rx.event(background=True)
+    async def connect_n8n(self):
+        import os, dotenv
+        async with self:
+            if not self.n8n_webhook_url:
+                self.n8n_connection_status = "Error: Missing URL"
+                return
+            self.n8n_connection_status = "Connecting..."
+            url = self.n8n_webhook_url
+            os.environ["N8N_WEBHOOK_URL"] = url
+            env_file = os.path.join(os.getcwd(), ".env")
+            if not os.path.exists(env_file): open(env_file, 'a').close()
+            dotenv.set_key(env_file, "N8N_WEBHOOK_URL", url)
+            self.n8n_connection_status = "Connected (Live)"
+            self.show_n8n_webhook_url_input = False
+            self.agent_thought_log.append("🔗 N8N Webhook URL updated")
+
     @rx.event(background=True)
     async def update_github_scope(self):
         """
@@ -548,6 +600,21 @@ class State(rx.State):
                 else:
                     self.slack_connection_status = "Not Connected"
                     self.show_slack_token_input = True
+                    
+                import os
+                if os.environ.get("GEMINI_API_KEY"):
+                    self.sre_brain_connection_status = "Connected (Live)"
+                    self.show_sre_brain_api_key_input = False
+                else:
+                    self.sre_brain_connection_status = "Not Connected"
+                    self.show_sre_brain_api_key_input = True
+                    
+                if os.environ.get("N8N_WEBHOOK_URL"):
+                    self.n8n_connection_status = "Connected (Live)"
+                    self.show_n8n_webhook_url_input = False
+                else:
+                    self.n8n_connection_status = "Not Connected"
+                    self.show_n8n_webhook_url_input = True
         except Exception:
             async with self:
                 self.github_connection_status = "Connection Error"
@@ -555,6 +622,8 @@ class State(rx.State):
                 self.notion_connection_status = "Connection Error"
                 self.jira_connection_status = "Connection Error"
                 self.slack_connection_status = "Connection Error"
+                self.sre_brain_connection_status = "Connection Error"
+                self.n8n_connection_status = "Connection Error"
 
     def handle_key_down(self, key: str):
         """
@@ -677,6 +746,52 @@ def integrations_dialog() -> rx.Component:
             rx.dialog.title("Data Integrations"),
             rx.dialog.description("Manage connections to external Zero-Warehouse sources."),
             rx.vstack(
+                rx.text("Essential Connections", size="3", font_weight="bold", margin_top="10px"),
+                rx.divider(),
+                # SRE Brain Card
+                rx.card(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.text("SRE Brain API Key (Gemini)", weight="bold"),
+                            rx.badge(State.sre_brain_connection_status, color_scheme=rx.cond(State.sre_brain_connection_status == "Connected (Live)", "green", "orange")),
+                            justify="between", width="100%"
+                        ),
+                        rx.cond(
+                            State.show_sre_brain_api_key_input,
+                            rx.vstack(
+                                rx.text("Authenticate with a Gemini API Key.", size="1", color="gray"),
+                                rx.input(placeholder="AI API Key (AIzaSy...)", on_change=State.set_sre_brain_api_key, type="password", width="100%"),
+                                rx.button("Connect API", on_click=State.connect_sre_brain, color_scheme="ruby", variant="soft", width="100%"),
+                                width="100%", spacing="2"
+                            ),
+                            rx.button("Update Token", on_click=State.toggle_sre_brain_api_key_input, color_scheme="gray", variant="outline", size="1", width="100%")
+                        ),
+                    ),
+                    width="100%"
+                ),
+                # N8N Card
+                rx.card(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.text("N8N Webhook URL", weight="bold"),
+                            rx.badge(State.n8n_connection_status, color_scheme=rx.cond(State.n8n_connection_status == "Connected (Live)", "green", "orange")),
+                            justify="between", width="100%"
+                        ),
+                        rx.cond(
+                            State.show_n8n_webhook_url_input,
+                            rx.vstack(
+                                rx.text("Webhook URL for automations.", size="1", color="gray"),
+                                rx.input(placeholder="Webhook URL (https://...)", on_change=State.set_n8n_webhook_url, type="text", width="100%"),
+                                rx.button("Connect API", on_click=State.connect_n8n, color_scheme="ruby", variant="soft", width="100%"),
+                                width="100%", spacing="2"
+                            ),
+                            rx.button("Update Token", on_click=State.toggle_n8n_webhook_url_input, color_scheme="gray", variant="outline", size="1", width="100%")
+                        ),
+                    ),
+                    width="100%"
+                ),
+                rx.text("Optional Connections", size="3", font_weight="bold", margin_top="20px"),
+                rx.divider(),
                 # GitHub Integration Card
                 rx.card(
                     rx.vstack(
@@ -1249,55 +1364,64 @@ def threat_intelligence() -> rx.Component:
     return rx.vstack(
         # Client-side 120Hz High-Fidelity SVG zoom & pan controller script
         rx.script("""
+            let zoomState = window._aegisZoomState || {
+                scale: 1,
+                translateX: 0,
+                translateY: 0,
+                isDragging: false,
+                startX: 0,
+                startY: 0
+            };
+            window._aegisZoomState = zoomState;
+
             function initSVGZoomPan() {
                 const svg = document.querySelector('.zoom-svg-container');
-                if (!svg || svg.dataset.zoomBound) return;
-                svg.dataset.zoomBound = 'true';
+                if (!svg) return;
 
                 const g = svg.querySelector('.zoom-g-container');
-                if (!g) return;
+                if (g) {
+                    g.style.transformOrigin = '150px 150px';
+                    g.style.transition = 'transform 0.05s ease-out';
+                    g.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
+                }
 
-                let scale = 1;
-                let translateX = 0;
-                let translateY = 0;
-                let isDragging = false;
-                let startX = 0;
-                let startY = 0;
-
-                g.style.transformOrigin = '150px 150px';
-                g.style.transition = 'transform 0.05s ease-out';
+                if (svg.dataset.zoomBound) return;
+                svg.dataset.zoomBound = 'true';
 
                 svg.addEventListener('wheel', e => {
                     e.preventDefault();
+                    const currentG = svg.querySelector('.zoom-g-container');
+                    if (!currentG) return;
                     const zoomIntensity = 0.04;
                     const delta = e.deltaY < 0 ? 1 : -1;
-                    const nextScale = scale + delta * zoomIntensity;
+                    const nextScale = zoomState.scale + delta * zoomIntensity;
                     
                     if (nextScale >= 0.6 && nextScale <= 3.5) {
-                        scale = nextScale;
-                        g.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+                        zoomState.scale = nextScale;
+                        currentG.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
                     }
                 }, { passive: false });
 
                 svg.addEventListener('mousedown', e => {
-                    // Only start drag if clicking background, not interactive node
                     if (e.target.closest('g') && e.target.closest('g').style.cursor === 'pointer') return;
-                    isDragging = true;
-                    startX = e.clientX - translateX;
-                    startY = e.clientY - translateY;
+                    zoomState.isDragging = true;
+                    zoomState.startX = e.clientX - zoomState.translateX;
+                    zoomState.startY = e.clientY - zoomState.translateY;
                     svg.style.cursor = 'grabbing';
                 });
 
                 window.addEventListener('mousemove', e => {
-                    if (!isDragging) return;
-                    translateX = e.clientX - startX;
-                    translateY = e.clientY - startY;
-                    g.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+                    if (!zoomState.isDragging) return;
+                    const currentG = svg.querySelector('.zoom-g-container');
+                    if (!currentG) return;
+                    zoomState.translateX = e.clientX - zoomState.startX;
+                    zoomState.translateY = e.clientY - zoomState.startY;
+                    currentG.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
                 });
 
                 window.addEventListener('mouseup', () => {
-                    if (isDragging) {
-                        isDragging = false;
+                    if (zoomState.isDragging) {
+                        zoomState.isDragging = false;
                         svg.style.cursor = 'grab';
                     }
                 });
@@ -1307,7 +1431,7 @@ def threat_intelligence() -> rx.Component:
             }
 
             document.addEventListener('DOMContentLoaded', initSVGZoomPan);
-            setInterval(initSVGZoomPan, 500);
+            setInterval(initSVGZoomPan, 100);
         """),
         rx.heading("BLAST RADIUS TOPOLOGY", size="3", color="white", font_family="Inter", font_weight="600"),
         rx.text("Real-time telemetry dependencies and isolated network compromised paths.", size="1", color="rgba(255,255,255,0.4)", margin_bottom="15px"),
